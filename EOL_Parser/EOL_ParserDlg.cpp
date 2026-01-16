@@ -4,6 +4,9 @@
 #include "EOL_ParserDlg.h"
 #include "afxdialogex.h"
 #include "sqlite3.h"
+#include <vector>
+#include <cmath>
+#include <algorithm>
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -43,6 +46,8 @@ void CEOLParserDlg::DoDataExchange(CDataExchange* pDX)
 	CDialogEx::DoDataExchange(pDX);
 	DDX_Control(pDX, IDC_DB_LIST, m_listData); // 리스트 컨트롤 연결
 	DDX_Control(pDX, IDC_DB_LIST, m_listData);
+
+	DDX_Control(pDX, IDC_COMBO_MODEL, m_comboModel); // [추가] 콤보박스 ID 확인!
 }
 
 // [이벤트 맵] 버튼 클릭 등의 동작 연결
@@ -52,7 +57,10 @@ BEGIN_MESSAGE_MAP(CEOLParserDlg, CDialogEx)
 	ON_WM_QUERYDRAGICON()
 	ON_BN_CLICKED(IDC_BTN_FolderOpen, &CEOLParserDlg::OnBnClickedBtnFolderopen)
 	ON_EN_CHANGE(IDC_FolderPath, &CEOLParserDlg::OnEnChangeFolderpath)
+	ON_CBN_SELCHANGE(IDC_COMBO_MODEL, &CEOLParserDlg::OnCbnSelchangeComboModel)
+
 END_MESSAGE_MAP()
+
 
 // ==========================================================
 // 2. 초기화 및 시스템 이벤트 (OnInitDialog, OnPaint 등)
@@ -96,6 +104,21 @@ BOOL CEOLParserDlg::OnInitDialog()
 	m_listData.InsertColumn(9, _T("LPS 55k"), LVCFMT_LEFT, 80);
 	m_listData.InsertColumn(10, _T("LPS 58k"), LVCFMT_LEFT, 80);
 
+
+	m_comboModel.ResetContent();
+	m_comboModel.AddString(_T("LPE 48k"));
+	m_comboModel.AddString(_T("LPE 50k"));
+	m_comboModel.AddString(_T("LPE 52k"));
+	m_comboModel.AddString(_T("LPE 54k"));
+	m_comboModel.AddString(_T("LPE 59k"));
+	m_comboModel.AddString(_T("LPS 46k"));
+	m_comboModel.AddString(_T("LPS 49k"));
+	m_comboModel.AddString(_T("LPS 52k"));
+	m_comboModel.AddString(_T("LPS 55k"));
+	m_comboModel.AddString(_T("LPS 58k"));
+
+	m_comboModel.SetCurSel(0); // 기본값 48k 선택
+
 	return TRUE;
 }
 
@@ -111,22 +134,6 @@ void CEOLParserDlg::OnSysCommand(UINT nID, LPARAM lParam)
 	}
 }
 
-// 창 그리기 (최소화 시 아이콘 처리)
-void CEOLParserDlg::OnPaint()
-{
-	if (IsIconic()) {
-		CPaintDC dc(this);
-		SendMessage(WM_ICONERASEBKGND, reinterpret_cast<WPARAM>(dc.GetSafeHdc()), 0);
-		int cxIcon = GetSystemMetrics(SM_CXICON);
-		int cyIcon = GetSystemMetrics(SM_CYICON);
-		CRect rect;
-		GetClientRect(&rect);
-		dc.DrawIcon((rect.Width() - cxIcon + 1) / 2, (rect.Height() - cyIcon + 1) / 2, m_hIcon);
-	}
-	else {
-		CDialogEx::OnPaint();
-	}
-}
 
 HCURSOR CEOLParserDlg::OnQueryDragIcon() { return static_cast<HCURSOR>(m_hIcon); }
 
@@ -268,3 +275,155 @@ void CEOLParserDlg::OnEnChangeFolderpath() {}
 // 4. 그래프
 // ==========================================================
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
+// 1. 수학 및 통계 계산 함수
+double CEOLParserDlg::GetMean(const std::vector<double>& data) {
+	if (data.empty()) return 0.0;
+	double sum = 0.0;
+	for (double d : data) sum += d;
+	return sum / data.size();
+}
+
+double CEOLParserDlg::GetStdDev(const std::vector<double>& data, double mean) {
+	if (data.empty()) return 0.0;
+	double sum = 0.0;
+	for (double d : data) sum += pow(d - mean, 2);
+	return sqrt(sum / data.size());
+}
+
+// 파이썬의 stats.norm.pdf(x, 0, 1)와 동일한 결과
+double CEOLParserDlg::NormalPDF(double x) {
+	return (1.0 / sqrt(2.0 * M_PI)) * exp(-0.5 * x * x);
+}
+
+// 2. 콤보박스 변경 시 호출
+void CEOLParserDlg::OnCbnSelchangeComboModel() {
+	Invalidate(); // OnPaint 강제 호출
+}
+
+// 3. 실제 PDF 그래프 그리기 로직
+void CEOLParserDlg::DrawNormalDistribution(CPaintDC& dc, CRect rect, std::vector<double>& data, COLORREF color)
+{
+	if (data.size() < 2) return;
+
+	// 1. 통계치 및 정규화 데이터 생성
+	double mean = GetMean(data);
+	double stdDev = GetStdDev(data, mean);
+	if (stdDev == 0) stdDev = 0.00001;
+
+	std::vector<double> normData;
+	double minX = 0, maxX = 0;
+	for (double v : data) {
+		double nv = (v - mean) / stdDev;
+		normData.push_back(nv);
+		if (nv < minX) minX = nv;
+		if (nv > maxX) maxX = nv;
+	}
+	// 여유분 추가 (이미지처럼 -2 ~ 8 근처까지 보이게)
+	minX -= 0.5; maxX += 0.5;
+
+	// 2. 히스토그램 데이터 계산 (100 Bins)
+	int binCount = 100;
+	std::vector<double> bins(binCount, 0.0);
+	double binWidth = (maxX - minX) / binCount;
+
+	for (double nv : normData) {
+		int idx = (int)((nv - minX) / binWidth);
+		if (idx >= 0 && idx < binCount) bins[idx]++;
+	}
+
+	// Y축 밀도(Density) 계산: 빈도수 / (전체수 * bin너비)
+	double maxDensity = 0;
+	for (int i = 0; i < binCount; i++) {
+		bins[i] = bins[i] / (data.size() * binWidth);
+		if (bins[i] > maxDensity) maxDensity = bins[i];
+	}
+	if (maxDensity < 0.4) maxDensity = 0.4; // 곡선이 잘리지 않게 최소 높이 확보
+
+	// 3. 초록색 히스토그램 그리기 (파이썬 스타일)
+	CBrush histBrush(RGB(100, 180, 100)); // 이미지와 유사한 초록색
+	CPen nullPen(PS_NULL, 0, RGB(0, 0, 0));
+	dc.SelectObject(&histBrush);
+	dc.SelectObject(&nullPen);
+
+	for (int i = 0; i < binCount; i++) {
+		if (bins[i] <= 0) continue;
+		int x1 = rect.left + (int)((i * binWidth) / (maxX - minX) * rect.Width());
+		int x2 = rect.left + (int)(((i + 1) * binWidth) / (maxX - minX) * rect.Width());
+		int y = rect.bottom - (int)(bins[i] / maxDensity * rect.Height() * 0.9); // 상단 10% 여유
+		dc.Rectangle(x1, y, x2 + 1, rect.bottom);
+	}
+
+	// 4. 빨간색 정규분포 곡선 (점선) 그리기
+	CPen curvePen(PS_DASH, 2, RGB(255, 0, 0)); // 빨간색 점선
+	dc.SelectObject(&curvePen);
+
+	bool first = true;
+	for (double tx = minX; tx <= maxX; tx += 0.1) {
+		int x = rect.left + (int)((tx - minX) / (maxX - minX) * rect.Width());
+		double ty = NormalPDF(tx); // 표준정규분포 PDF
+		int y = rect.bottom - (int)(ty / maxDensity * rect.Height() * 0.9);
+
+		if (first) { dc.MoveTo(x, y); first = false; }
+		else { dc.LineTo(x, y); }
+	}
+}
+
+// 4. OnPaint 함수 완성본
+void CEOLParserDlg::OnPaint()
+{
+	CPaintDC dc(this);
+	if (IsIconic()) {
+		// ... (아이콘 생략) ...
+	}
+	else {
+		CDialogEx::OnPaint();
+
+		CWnd* pStatic = GetDlgItem(IDC_STATIC_GRAPH);
+		if (!pStatic) return;
+		CRect graphRect;
+		pStatic->GetWindowRect(&graphRect);
+		ScreenToClient(&graphRect);
+
+		dc.FillSolidRect(graphRect, RGB(255, 255, 255));
+
+		// 외곽 틀 그리기
+		CPen axisPen(PS_SOLID, 1, RGB(0, 0, 0));
+		dc.SelectObject(&axisPen);
+		dc.MoveTo(graphRect.left, graphRect.top);
+		dc.LineTo(graphRect.left, graphRect.bottom);
+		dc.LineTo(graphRect.right, graphRect.bottom);
+
+		int selIdx = m_comboModel.GetCurSel();
+		if (selIdx == CB_ERR) return;
+
+		std::vector<double> columnData;
+		for (int i = 0; i < m_listData.GetItemCount(); i++) {
+			columnData.push_back(_tstof(m_listData.GetItemText(i, selIdx + 1)));
+		}
+
+		if (!columnData.empty()) {
+			DrawNormalDistribution(dc, graphRect, columnData, RGB(255, 0, 0));
+
+			// 라벨 및 제목 출력
+			dc.SetBkMode(TRANSPARENT);
+			CString title;
+			m_comboModel.GetLBText(selIdx, title);
+			title += _T(" Normalized Data Distribution");
+
+			CFont titleFont;
+			titleFont.CreatePointFont(120, _T("Arial"));
+			CFont* pOldFont = dc.SelectObject(&titleFont);
+			dc.TextOutW(graphRect.left + (graphRect.Width() / 4), graphRect.top - 25, title);
+			dc.SelectObject(pOldFont);
+
+			// X축 하단 설명
+			dc.TextOutW(graphRect.CenterPoint().x - 40, graphRect.bottom + 20, _T("Normalized Value"));
+			// Y축 좌측 설명 (세로 쓰기는 복잡하므로 간략히)
+			dc.TextOutW(graphRect.left - 45, graphRect.CenterPoint().y, _T("Density"));
+		}
+	}
+}

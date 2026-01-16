@@ -1,5 +1,8 @@
 ﻿#pragma once
 #include <vector> // [추가] std::vector 사용을 위해 필요
+// EOL_ParserDlg.h 에 추가
+#include <vector>
+#include <algorithm>
 
 // [추가] 데이터를 담을 구조체 선언
 struct TestResult {
@@ -41,5 +44,15 @@ public:
     CListCtrl m_listData;
     afx_msg void OnBnClickedBtnFolderopen();
     afx_msg void OnEnChangeFolderpath();
-    afx_msg void OnLvnItemchangedDbList(NMHDR* pNMHDR, LRESULT* pResult);
+
+    CComboBox m_comboModel; // 콤보박스 변수
+    afx_msg void OnCbnSelchangeComboModel(); // 콤보박스 변경 이벤트 함수
+
+    // 통계 및 수학 함수
+    double GetMean(const std::vector<double>& data);
+    double GetStdDev(const std::vector<double>& data, double mean);
+    double NormalPDF(double x);
+
+    // 그리기 함수
+    void DrawNormalDistribution(CPaintDC& dc, CRect rect, std::vector<double>& data, COLORREF color);
 };
