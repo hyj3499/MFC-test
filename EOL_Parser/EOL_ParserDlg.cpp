@@ -72,6 +72,12 @@ BOOL CEOLParserDlg::OnInitDialog()
 		}
 	}
 
+	// 폰트 크기 조절 (크기 22, 굵게 설정)
+	m_font.CreateFont(22, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+		DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+		DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, _T("맑은 고딕"));
+	GetDlgItem(IDC_BTN_FolderOpen)->SetFont(&m_font);
+
 	// 아이콘 설정
 	SetIcon(m_hIcon, TRUE);
 	SetIcon(m_hIcon, FALSE);

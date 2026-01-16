@@ -35,6 +35,8 @@ public:
     void ShowDatabaseContents(CString folderPath);
     CString ExtractHtmlValue(const CString& source, CString startTag, CString endTag, int& searchPos);
 
+    CFont m_font; // [추가] 폰트 객체 변수
+
     // [변수 및 이벤트]
     CListCtrl m_listData;
     afx_msg void OnBnClickedBtnFolderopen();
