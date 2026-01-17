@@ -51,6 +51,8 @@ void CEOLParserDlg::DoDataExchange(CDataExchange* pDX)
 
 	// [추가] 새로 만든 통계 리스트 연결
 	DDX_Control(pDX, IDC_LIST_STATS, m_listStats);
+	// [추가] 로그 리스트 연결
+	DDX_Control(pDX, IDC_LIST_LOG, m_logList);
 }
 
 // [이벤트 맵] 버튼 클릭 등의 동작 연결
@@ -62,7 +64,8 @@ BEGIN_MESSAGE_MAP(CEOLParserDlg, CDialogEx)
 	ON_EN_CHANGE(IDC_FolderPath, &CEOLParserDlg::OnEnChangeFolderpath)
 	ON_CBN_SELCHANGE(IDC_COMBO_MODEL, &CEOLParserDlg::OnCbnSelchangeComboModel)
 
-	ON_NOTIFY(LVN_ITEMCHANGED, IIDC_LIST_STATS, &CEOLParserDlg::OnLvnItemchangedListStats)
+	ON_NOTIFY(LVN_ITEMCHANGED, IDC_LIST_STATS, &CEOLParserDlg::OnLvnItemchangedListStats)
+	ON_NOTIFY(LVN_ITEMCHANGED, IDC_LIST_LOG, &CEOLParserDlg::OnLvnItemchangedListLog)
 END_MESSAGE_MAP()
 
 
@@ -112,7 +115,7 @@ BOOL CEOLParserDlg::OnInitDialog()
 	m_listStats.SetExtendedStyle(LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
 
 	// 1. 컬럼 생성 (0번: 구분, 1~10번: 데이터)
-	m_listStats.InsertColumn(0, _T("구분"), LVCFMT_LEFT, 80);
+	m_listStats.InsertColumn(0, _T("구분"), LVCFMT_LEFT, 170);
 	m_listStats.InsertColumn(1, _T("LPE 48k"), LVCFMT_LEFT, 80);
 	m_listStats.InsertColumn(2, _T("LPE 50k"), LVCFMT_LEFT, 80);
 	m_listStats.InsertColumn(3, _T("LPE 52k"), LVCFMT_LEFT, 80);
@@ -188,17 +191,52 @@ void CEOLParserDlg::OnBnClickedBtnFolderopen()
 	if (dlg.DoModal() == IDOK)
 	{
 		CString folderPath = dlg.GetPathName();
-		SetDlgItemText(IDC_FolderPath, folderPath); // 에디트 박스에 경로 표시
+		SetDlgItemText(IDC_FolderPath, folderPath);
 
-		// 0. 기존 DB 파일이 있으면 삭제하여 초기화
-		CString dbPath = folderPath + _T("\\result.db"); //DB 경로 설정
-		if (PathFileExists(dbPath)) { // 파일이 존재하는지 확인
-			DeleteFile(dbPath);       // 파일 삭제
+		// ---------------------------------------------------------
+		// [Step 0] 초기화
+		// ---------------------------------------------------------
+		m_logList.ResetContent();
+		AddLog(_T("작업을 시작합니다..."));
+		UpdateWindow(); // 화면 갱신
+
+		// ---------------------------------------------------------
+		// [Step 1] 전체 파일 개수 미리 세기 (퍼센트 계산용)
+		// ---------------------------------------------------------
+		AddLog(_T("전체 파일 개수를 확인 중입니다..."));
+
+		CFileFind finderCount;
+		CString searchPath = folderPath + _T("\\*.html");
+		BOOL bWorkingCount = finderCount.FindFile(searchPath);
+
+		long totalFileCount = 0; // 전체 파일 수 저장 변수
+
+		while (bWorkingCount) {
+			bWorkingCount = finderCount.FindNextFile();
+			if (!finderCount.IsDots() && !finderCount.IsDirectory()) {
+				totalFileCount++;
+			}
+		}
+		finderCount.Close();
+
+		if (totalFileCount == 0) {
+			AddLog(_T("[알림] 해당 폴더에 HTML 파일이 없습니다."));
+			AfxMessageBox(_T("HTML 파일이 없습니다."));
+			return;
 		}
 
-		// 1. DB 연결 및 테이블 생성
+		CString msgCount;
+		msgCount.Format(_T("총 %ld개의 파일이 발견되었습니다."), totalFileCount);
+		AddLog(msgCount);
+
+		// ---------------------------------------------------------
+		// [Step 2] DB 준비
+		// ---------------------------------------------------------
+		CString dbPath = folderPath + _T("\\result.db");
+		if (PathFileExists(dbPath)) DeleteFile(dbPath);
+
 		if (sqlite3_open(CT2A(dbPath), &g_db) != SQLITE_OK) {
-			AfxMessageBox(_T("DB 생성에 실패했습니다."));
+			AddLog(_T("[Error] DB 생성 실패"));
 			return;
 		}
 
@@ -208,65 +246,115 @@ void CEOLParserDlg::OnBnClickedBtnFolderopen()
 			"LPS46 REAL, LPS49 REAL, LPS52 REAL, LPS55 REAL, LPS58 REAL);";
 		sqlite3_exec(g_db, createSql, nullptr, nullptr, nullptr);
 
-		// 2. HTML 파일들을 찾아서 데이터 파싱
+		// ---------------------------------------------------------
+		// [Step 3] 실제 파싱 및 진행률 표시
+		// ---------------------------------------------------------
 		CFileFind finder;
-		CString searchPath = folderPath + _T("\\*.html");
 		BOOL bWorking = finder.FindFile(searchPath);
-		int count = 0;
+
+		long currentCount = 0; // 현재 진행 수
+		int successCount = 0;
+		int failCount = 0;
+		int prevPercent = -1; // 이전 퍼센트 (중복 로그 방지용)
+
+		AddLog(_T("데이터 파싱 시작..."));
+		sqlite3_exec(g_db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
 
 		while (bWorking)
 		{
 			bWorking = finder.FindNextFile();
 			if (finder.IsDots() || finder.IsDirectory()) continue;
 
+			currentCount++; // 처리 개수 증가
+
+			// --- [퍼센트 계산] ---
+			int percent = (int)((double)currentCount / totalFileCount * 100);
+
+			// [수정 포인트] 10% 조건(percent % 10 == 0)을 지웠습니다.
+			// 이제 퍼센트 숫자가 바뀔 때마다(1% 단위) 로그를 출력합니다.
+			if (percent != prevPercent)
+			{
+				CString strLog;
+				strLog.Format(_T("진행률: %d%% (%ld / %ld)"), percent, currentCount, totalFileCount);
+				AddLog(strLog);
+
+				prevPercent = percent; // 중복 출력 방지용 갱신
+
+				// UI 멈춤 방지 (로그가 자주 찍히므로 필수)
+				MSG msg;
+				while (::PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
+					::TranslateMessage(&msg);
+					::DispatchMessage(&msg);
+				}
+			}
+
+			// --- 파일 파싱 로직 (기존과 동일) ---
 			CStdioFile file;
 			if (file.Open(finder.GetFilePath(), CFile::modeRead | CFile::typeText)) {
 				CString line, fullText;
 				while (file.ReadString(line)) fullText += line;
 				file.Close();
 
-				// 파싱 시작
 				TestResult res;
 				int pos = 0;
-
-				//erialNumber 파싱
 				int snLabelPos = fullText.Find(_T("<td>Serial Number:</td>"));
 				if (snLabelPos != -1) {
-					// 2. 그 라벨 바로 다음에 오는 <td> 태그를 찾아서 그 안의 값을 가져옵니다.
-					int nextTd = fullText.Find(_T("<td>"), snLabelPos + 20); // 20은 라벨 길이 대략 계산
-					pos = nextTd; // ExtractHtmlValue가 검색을 시작할 위치 지정
+					int nextTd = fullText.Find(_T("<td>"), snLabelPos + 20);
+					pos = nextTd;
 					res.serialNumber = ExtractHtmlValue(fullText, _T("<td>"), _T("</td>"), pos);
 				}
-
 				for (int i = 0; i < 10; ++i) {
 					double val = _tstof(ExtractHtmlValue(fullText, _T("<td class=\"value\">"), _T("</td>"), pos));
 					if (i < 5) res.lpe.push_back(val); else res.lps.push_back(val);
 				}
 
-				// 3. DB에 쿼리로 저장
-				const char* insSql = "INSERT INTO EOL_DATA (SN, LPE48, LPE50, LPE52, LPE54, LPE59, LPS46, LPS49, LPS52, LPS55, LPS58) VALUES (?,?,?,?,?,?,?,?,?,?,?);";
-				sqlite3_stmt* stmt;
-				if (sqlite3_prepare_v2(g_db, insSql, -1, &stmt, nullptr) == SQLITE_OK) {
-					sqlite3_bind_text(stmt, 1, CT2A(res.serialNumber), -1, SQLITE_TRANSIENT);
-					for (int j = 0; j < 5; ++j) {
-						sqlite3_bind_double(stmt, j + 2, res.lpe[j]);
-						sqlite3_bind_double(stmt, j + 7, res.lps[j]);
+				if (res.serialNumber.IsEmpty() || res.lpe.size() < 5 || res.lps.size() < 5) {
+					failCount++;
+				}
+				else {
+					const char* insSql = "INSERT INTO EOL_DATA (SN, LPE48, LPE50, LPE52, LPE54, LPE59, LPS46, LPS49, LPS52, LPS55, LPS58) VALUES (?,?,?,?,?,?,?,?,?,?,?);";
+					sqlite3_stmt* stmt;
+					if (sqlite3_prepare_v2(g_db, insSql, -1, &stmt, nullptr) == SQLITE_OK) {
+						sqlite3_bind_text(stmt, 1, CT2A(res.serialNumber), -1, SQLITE_TRANSIENT);
+						for (int j = 0; j < 5; ++j) {
+							sqlite3_bind_double(stmt, j + 2, res.lpe[j]);
+							sqlite3_bind_double(stmt, j + 7, res.lps[j]);
+						}
+						if (sqlite3_step(stmt) == SQLITE_DONE) successCount++;
+						else failCount++;
+						sqlite3_finalize(stmt);
 					}
-					sqlite3_step(stmt);
-					sqlite3_finalize(stmt);
-					count++;
+					else failCount++;
 				}
 			}
+			else failCount++;
 		}
+
+		sqlite3_exec(g_db, "COMMIT;", nullptr, nullptr, nullptr);
 		sqlite3_close(g_db); g_db = nullptr;
 
-		// 4. 화면 리스트 컨트롤에 결과 출력
+		// ---------------------------------------------------------
+		// [Step 4] 결과 출력
+		// ---------------------------------------------------------
 		ShowDatabaseContents(folderPath);
-		// [추가] 통계 계산 및 출력 함수 호출!
 		UpdateStatistics();
-		CString msg;
-		msg.Format(_T("%d개의 파일을 파싱하여 DB에 저장했습니다."), count);
-		AfxMessageBox(msg);
+
+		// [LOG] 최종 결과 요약 출력
+		AddLog(_T("================ 결과 리포트 ================"));
+
+		CString summary;
+		summary.Format(_T(" 총 파일 스캔 : %d 개"), totalFileCount);
+		AddLog(summary);
+
+		summary.Format(_T(" ▶ 파싱 성공 : %d 개"), successCount);
+		AddLog(summary);
+
+		summary.Format(_T(" ▶ 파싱 오류 : %d 개"), failCount);
+		AddLog(summary);
+
+		AddLog(_T("==========================================="));
+
+		AfxMessageBox(_T("완료되었습니다!"));
 	}
 }
 
@@ -376,6 +464,34 @@ void CEOLParserDlg::UpdateStatistics()
 		strTemp.Format(_T("%.2f"), median);
 		m_listStats.SetItemText(5, targetCol, strTemp); // MEDIAN
 	}
+}
+
+
+// ==========================================================
+// 4. 
+// ==========================================================
+
+// [로그 출력] 리스트 박스에 시간 + 메시지 추가 및 자동 스크롤
+void CEOLParserDlg::AddLog(CString msg)
+{
+	// 1. 현재 시간 구하기 (시:분:초)
+	CTime now = CTime::GetCurrentTime();
+	CString strTime = now.Format(_T("[%H:%M:%S] "));
+
+	// 2. 메시지 포맷팅
+	CString fullMsg = strTime + msg;
+
+	// 3. 리스트 박스에 추가 (m_logList가 연결되어 있어야 함)
+	int nIndex = m_logList.AddString(fullMsg);
+
+	// 4. 자동 스크롤 (맨 아래 항목 선택)
+	if (nIndex != LB_ERR) {
+		m_logList.SetCurSel(nIndex);
+	}
+
+	// 5. 즉시 화면 갱신 (루프 도는 중에도 로그가 보이게 함)
+	// 이 부분이 없으면 작업이 다 끝난 뒤에 한꺼번에 뜹니다.
+	m_logList.RedrawWindow();
 }
 
 // ==========================================================
@@ -550,6 +666,13 @@ void CEOLParserDlg::OnPaint()
 	}
 }
 void CEOLParserDlg::OnLvnItemchangedListStats(NMHDR* pNMHDR, LRESULT* pResult)
+{
+	LPNMLISTVIEW pNMLV = reinterpret_cast<LPNMLISTVIEW>(pNMHDR);
+	// TODO: 여기에 컨트롤 알림 처리기 코드를 추가합니다.
+	*pResult = 0;
+}
+
+void CEOLParserDlg::OnLvnItemchangedListLog(NMHDR* pNMHDR, LRESULT* pResult)
 {
 	LPNMLISTVIEW pNMLV = reinterpret_cast<LPNMLISTVIEW>(pNMHDR);
 	// TODO: 여기에 컨트롤 알림 처리기 코드를 추가합니다.

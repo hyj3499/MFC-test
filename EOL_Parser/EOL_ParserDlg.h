@@ -1,6 +1,4 @@
 ﻿#pragma once
-#include <vector> // [추가] std::vector 사용을 위해 필요
-// EOL_ParserDlg.h 에 추가
 #include <vector>
 #include <algorithm>
 
@@ -34,32 +32,31 @@ protected:
     DECLARE_MESSAGE_MAP()
 
 public:
-    // [추가] 로직 함수 선언 (cpp에 있는 함수들)
-    void ShowDatabaseContents(CString folderPath);
-    CString ExtractHtmlValue(const CString& source, CString startTag, CString endTag, int& searchPos);
+    // [UI 컨트롤 변수]
+    CListCtrl m_listData;    // 메인 데이터 리스트
+    CListCtrl m_listStats;   // 통계 리스트
+    CListBox  m_logList;     // 로그 리스트
+    CComboBox m_comboModel;  // 모델 선택 콤보박스
+    CFont     m_font;        // 폰트 객체
 
-    CFont m_font; // [추가] 폰트 객체 변수
-
-    // [변수 및 이벤트]
-    CListCtrl m_listData;
+    // [이벤트 핸들러]
     afx_msg void OnBnClickedBtnFolderopen();
     afx_msg void OnEnChangeFolderpath();
+    afx_msg void OnCbnSelchangeComboModel();
 
-    // [추가] 통계용 리스트 컨트롤 변수
-    CListCtrl m_listStats;
+    // (자동 생성된 이벤트 핸들러 - 사용 안 하면 지워도 됨)
+    afx_msg void OnLvnItemchangedListStats(NMHDR* pNMHDR, LRESULT* pResult);
+    afx_msg void OnLvnItemchangedListLog(NMHDR* pNMHDR, LRESULT* pResult);
 
-    // [추가] 통계 계산 및 출력 함수 선언
-    void UpdateStatistics();
+    // [사용자 정의 함수]
+    void ShowDatabaseContents(CString folderPath);
+    CString ExtractHtmlValue(const CString& source, CString startTag, CString endTag, int& searchPos);
+    void UpdateStatistics(); // 통계 계산
+    void AddLog(CString msg); // 로그 출력
 
-    CComboBox m_comboModel; // 콤보박스 변수
-    afx_msg void OnCbnSelchangeComboModel(); // 콤보박스 변경 이벤트 함수
-
-    // 통계 및 수학 함수
+    // [통계 및 그래프 함수]
     double GetMean(const std::vector<double>& data);
     double GetStdDev(const std::vector<double>& data, double mean);
     double NormalPDF(double x);
-
-    // 그리기 함수
     void DrawNormalDistribution(CPaintDC& dc, CRect rect, std::vector<double>& data, COLORREF color);
-    afx_msg void OnLvnItemchangedListStats(NMHDR* pNMHDR, LRESULT* pResult);
 };
