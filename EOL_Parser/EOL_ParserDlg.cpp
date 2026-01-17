@@ -48,6 +48,9 @@ void CEOLParserDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_DB_LIST, m_listData);
 
 	DDX_Control(pDX, IDC_COMBO_MODEL, m_comboModel); // [추가] 콤보박스 ID 확인!
+
+	// [추가] 새로 만든 통계 리스트 연결
+	DDX_Control(pDX, IDC_LIST_STATS, m_listStats);
 }
 
 // [이벤트 맵] 버튼 클릭 등의 동작 연결
@@ -59,6 +62,7 @@ BEGIN_MESSAGE_MAP(CEOLParserDlg, CDialogEx)
 	ON_EN_CHANGE(IDC_FolderPath, &CEOLParserDlg::OnEnChangeFolderpath)
 	ON_CBN_SELCHANGE(IDC_COMBO_MODEL, &CEOLParserDlg::OnCbnSelchangeComboModel)
 
+	ON_NOTIFY(LVN_ITEMCHANGED, IIDC_LIST_STATS, &CEOLParserDlg::OnLvnItemchangedListStats)
 END_MESSAGE_MAP()
 
 
@@ -104,6 +108,30 @@ BOOL CEOLParserDlg::OnInitDialog()
 	m_listData.InsertColumn(9, _T("LPS 55k"), LVCFMT_LEFT, 80);
 	m_listData.InsertColumn(10, _T("LPS 58k"), LVCFMT_LEFT, 80);
 
+	// [통계 리스트 초기화]
+	m_listStats.SetExtendedStyle(LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
+
+	// 1. 컬럼 생성 (0번: 구분, 1~10번: 데이터)
+	m_listStats.InsertColumn(0, _T("구분"), LVCFMT_LEFT, 80);
+	m_listStats.InsertColumn(1, _T("LPE 48k"), LVCFMT_LEFT, 80);
+	m_listStats.InsertColumn(2, _T("LPE 50k"), LVCFMT_LEFT, 80);
+	m_listStats.InsertColumn(3, _T("LPE 52k"), LVCFMT_LEFT, 80);
+	m_listStats.InsertColumn(4, _T("LPE 54k"), LVCFMT_LEFT, 80);
+	m_listStats.InsertColumn(5, _T("LPE 59k"), LVCFMT_LEFT, 80);
+	m_listStats.InsertColumn(6, _T("LPS 46k"), LVCFMT_LEFT, 80);
+	m_listStats.InsertColumn(7, _T("LPS 49k"), LVCFMT_LEFT, 80);
+	m_listStats.InsertColumn(8, _T("LPS 52k"), LVCFMT_LEFT, 80);
+	m_listStats.InsertColumn(9, _T("LPS 55k"), LVCFMT_LEFT, 80);
+	m_listStats.InsertColumn(10, _T("LPS 58k"), LVCFMT_LEFT, 80);
+
+	// 2. [추가] 빈 행(Row) 미리 생성!
+	// 프로그램 시작 시 바로 보이게 됩니다.
+	m_listStats.InsertItem(0, _T("MIN (최소)"));
+	m_listStats.InsertItem(1, _T("MEAN (평균)"));
+	m_listStats.InsertItem(2, _T("MAX (최대)"));
+	m_listStats.InsertItem(3, _T("RANGE (범위)"));
+	m_listStats.InsertItem(4, _T("STD DEV (편차)"));
+	m_listStats.InsertItem(5, _T("MEDIAN (중앙)"));
 
 	m_comboModel.ResetContent();
 	m_comboModel.AddString(_T("LPE 48k"));
@@ -234,7 +262,8 @@ void CEOLParserDlg::OnBnClickedBtnFolderopen()
 
 		// 4. 화면 리스트 컨트롤에 결과 출력
 		ShowDatabaseContents(folderPath);
-
+		// [추가] 통계 계산 및 출력 함수 호출!
+		UpdateStatistics();
 		CString msg;
 		msg.Format(_T("%d개의 파일을 파싱하여 DB에 저장했습니다."), count);
 		AfxMessageBox(msg);
@@ -270,6 +299,84 @@ void CEOLParserDlg::ShowDatabaseContents(CString folderPath) {
 
 // [기타] 경로 변경 시 처리 (현재 비어있음)
 void CEOLParserDlg::OnEnChangeFolderpath() {}
+
+void CEOLParserDlg::UpdateStatistics()
+{
+	int rowCount = m_listData.GetItemCount();
+	if (rowCount == 0) return;
+
+	for (int i = 0; i < 10; ++i)
+	{
+		std::vector<double> values;
+		int targetCol = i + 1;
+
+		// 데이터 수집
+		for (int row = 0; row < rowCount; ++row) {
+			CString strVal = m_listData.GetItemText(row, targetCol);
+			values.push_back(_tstof(strVal));
+		}
+
+		if (values.empty()) continue;
+
+		// 1. 기초 통계 (Sum, Min, Max)
+		double sum = 0;
+		double minVal = values[0];
+		double maxVal = values[0];
+
+		for (double v : values) {
+			sum += v;
+			if (v < minVal) minVal = v;
+			if (v > maxVal) maxVal = v;
+		}
+		double mean = sum / values.size();
+
+		// 2. 추가 통계 계산
+
+		// [Range] 범위
+		double range = maxVal - minVal;
+
+		// [Std Dev] 표준편차
+		double sumSqDiff = 0.0;
+		for (double v : values) {
+			sumSqDiff += pow(v - mean, 2);
+		}
+		double stdDev = sqrt(sumSqDiff / values.size());
+
+		// [Median] 중앙값 (정렬 필요)
+		std::vector<double> sortedVal = values; // 원본 보존을 위해 복사
+		std::sort(sortedVal.begin(), sortedVal.end());
+		double median = 0.0;
+		size_t n = sortedVal.size();
+		if (n % 2 == 0)
+			median = (sortedVal[n / 2 - 1] + sortedVal[n / 2]) / 2.0;
+		else
+			median = sortedVal[n / 2];
+
+
+		// 3. 리스트에 값 입력 (0~5번 행)
+		CString strTemp;
+
+		// 기존
+		strTemp.Format(_T("%.2f"), minVal);
+		m_listStats.SetItemText(0, targetCol, strTemp);
+
+		strTemp.Format(_T("%.2f"), mean);
+		m_listStats.SetItemText(1, targetCol, strTemp);
+
+		strTemp.Format(_T("%.2f"), maxVal);
+		m_listStats.SetItemText(2, targetCol, strTemp);
+
+		// [추가]
+		strTemp.Format(_T("%.2f"), range);
+		m_listStats.SetItemText(3, targetCol, strTemp); // RANGE
+
+		strTemp.Format(_T("%.3f"), stdDev); // 편차는 소수점 3자리 추천
+		m_listStats.SetItemText(4, targetCol, strTemp); // STD DEV
+
+		strTemp.Format(_T("%.2f"), median);
+		m_listStats.SetItemText(5, targetCol, strTemp); // MEDIAN
+	}
+}
 
 // ==========================================================
 // 4. 그래프
@@ -309,7 +416,6 @@ void CEOLParserDlg::DrawNormalDistribution(CPaintDC& dc, CRect rect, std::vector
 {
 	if (data.size() < 2) return;
 
-	// 1. 통계치 및 정규화 데이터 생성
 	double mean = GetMean(data);
 	double stdDev = GetStdDev(data, mean);
 	if (stdDev == 0) stdDev = 0.00001;
@@ -322,11 +428,11 @@ void CEOLParserDlg::DrawNormalDistribution(CPaintDC& dc, CRect rect, std::vector
 		if (nv < minX) minX = nv;
 		if (nv > maxX) maxX = nv;
 	}
-	// 여유분 추가 (이미지처럼 -2 ~ 8 근처까지 보이게)
-	minX -= 0.5; maxX += 0.5;
+	// 데이터 분포에 따라 유동적으로 범위 설정
+	minX = floor(minX) - 1.0;
+	maxX = ceil(maxX) + 1.0;
 
-	// 2. 히스토그램 데이터 계산 (100 Bins)
-	int binCount = 100;
+	int binCount = 50; // 네모 개수를 줄여서 가독성 확보
 	std::vector<double> bins(binCount, 0.0);
 	double binWidth = (maxX - minX) / binCount;
 
@@ -335,16 +441,15 @@ void CEOLParserDlg::DrawNormalDistribution(CPaintDC& dc, CRect rect, std::vector
 		if (idx >= 0 && idx < binCount) bins[idx]++;
 	}
 
-	// Y축 밀도(Density) 계산: 빈도수 / (전체수 * bin너비)
 	double maxDensity = 0;
 	for (int i = 0; i < binCount; i++) {
 		bins[i] = bins[i] / (data.size() * binWidth);
 		if (bins[i] > maxDensity) maxDensity = bins[i];
 	}
-	if (maxDensity < 0.4) maxDensity = 0.4; // 곡선이 잘리지 않게 최소 높이 확보
+	if (maxDensity < 0.4) maxDensity = 0.4;
 
-	// 3. 초록색 히스토그램 그리기 (파이썬 스타일)
-	CBrush histBrush(RGB(100, 180, 100)); // 이미지와 유사한 초록색
+	// --- [1] 히스토그램 그리기 ---
+	CBrush histBrush(RGB(100, 180, 100));
 	CPen nullPen(PS_NULL, 0, RGB(0, 0, 0));
 	dc.SelectObject(&histBrush);
 	dc.SelectObject(&nullPen);
@@ -353,20 +458,39 @@ void CEOLParserDlg::DrawNormalDistribution(CPaintDC& dc, CRect rect, std::vector
 		if (bins[i] <= 0) continue;
 		int x1 = rect.left + (int)((i * binWidth) / (maxX - minX) * rect.Width());
 		int x2 = rect.left + (int)(((i + 1) * binWidth) / (maxX - minX) * rect.Width());
-		int y = rect.bottom - (int)(bins[i] / maxDensity * rect.Height() * 0.9); // 상단 10% 여유
-		dc.Rectangle(x1, y, x2 + 1, rect.bottom);
+		int y = rect.bottom - (int)(bins[i] / maxDensity * rect.Height() * 0.85);
+		dc.Rectangle(x1, y, x2, rect.bottom);
 	}
 
-	// 4. 빨간색 정규분포 곡선 (점선) 그리기
-	CPen curvePen(PS_DASH, 2, RGB(255, 0, 0)); // 빨간색 점선
-	dc.SelectObject(&curvePen);
+	// --- [2] X축 숫자 눈금 그리기 (예: -2, 0, 2, 4...) ---
+	dc.SetTextColor(RGB(0, 0, 0));
+	for (double val = minX; val <= maxX; val += 1.0) {
+		int x = rect.left + (int)((val - minX) / (maxX - minX) * rect.Width());
+		CString strVal;
+		strVal.Format(_T("%.0f"), val);
+		dc.TextOutW(x - 5, rect.bottom + 5, strVal);
 
+		// 작은 눈금선
+		dc.MoveTo(x, rect.bottom);
+		dc.LineTo(x, rect.bottom + 3);
+	}
+
+	// --- [3] Y축 숫자 눈금 그리기 (0.0, 0.2, 0.4...) ---
+	for (double d = 0.0; d <= maxDensity; d += 0.1) {
+		int y = rect.bottom - (int)(d / maxDensity * rect.Height() * 0.85);
+		CString strDensity;
+		strDensity.Format(_T("%.1f"), d);
+		dc.TextOutW(rect.left - 30, y - 8, strDensity);
+	}
+
+	// --- [4] 빨간색 곡선 그리기 ---
+	CPen curvePen(PS_DASH, 2, RGB(255, 0, 0));
+	dc.SelectObject(&curvePen);
 	bool first = true;
 	for (double tx = minX; tx <= maxX; tx += 0.1) {
 		int x = rect.left + (int)((tx - minX) / (maxX - minX) * rect.Width());
-		double ty = NormalPDF(tx); // 표준정규분포 PDF
-		int y = rect.bottom - (int)(ty / maxDensity * rect.Height() * 0.9);
-
+		double ty = NormalPDF(tx);
+		int y = rect.bottom - (int)(ty / maxDensity * rect.Height() * 0.85);
 		if (first) { dc.MoveTo(x, y); first = false; }
 		else { dc.LineTo(x, y); }
 	}
@@ -376,9 +500,7 @@ void CEOLParserDlg::DrawNormalDistribution(CPaintDC& dc, CRect rect, std::vector
 void CEOLParserDlg::OnPaint()
 {
 	CPaintDC dc(this);
-	if (IsIconic()) {
-		// ... (아이콘 생략) ...
-	}
+	if (IsIconic()) { /* ... */ }
 	else {
 		CDialogEx::OnPaint();
 
@@ -388,14 +510,18 @@ void CEOLParserDlg::OnPaint()
 		pStatic->GetWindowRect(&graphRect);
 		ScreenToClient(&graphRect);
 
+		// 그래프 가독성을 위해 여백(Margin) 확보
+		CRect drawRect = graphRect;
+		drawRect.DeflateRect(40, 40, 20, 40); // 좌, 상, 우, 하 여백
+
 		dc.FillSolidRect(graphRect, RGB(255, 255, 255));
 
-		// 외곽 틀 그리기
+		// 기본 축 그리기
 		CPen axisPen(PS_SOLID, 1, RGB(0, 0, 0));
 		dc.SelectObject(&axisPen);
-		dc.MoveTo(graphRect.left, graphRect.top);
-		dc.LineTo(graphRect.left, graphRect.bottom);
-		dc.LineTo(graphRect.right, graphRect.bottom);
+		dc.MoveTo(drawRect.left, drawRect.top);
+		dc.LineTo(drawRect.left, drawRect.bottom); // Y축
+		dc.LineTo(drawRect.right, drawRect.bottom); // X축
 
 		int selIdx = m_comboModel.GetCurSel();
 		if (selIdx == CB_ERR) return;
@@ -406,24 +532,26 @@ void CEOLParserDlg::OnPaint()
 		}
 
 		if (!columnData.empty()) {
-			DrawNormalDistribution(dc, graphRect, columnData, RGB(255, 0, 0));
+			DrawNormalDistribution(dc, drawRect, columnData, RGB(255, 0, 0));
 
-			// 라벨 및 제목 출력
+			// 제목 및 축 라벨
 			dc.SetBkMode(TRANSPARENT);
 			CString title;
 			m_comboModel.GetLBText(selIdx, title);
-			title += _T(" Normalized Data Distribution");
+			title += _T(" Distribution");
+			dc.TextOutW(drawRect.left + 50, drawRect.top - 30, title);
 
-			CFont titleFont;
-			titleFont.CreatePointFont(120, _T("Arial"));
-			CFont* pOldFont = dc.SelectObject(&titleFont);
-			dc.TextOutW(graphRect.left + (graphRect.Width() / 4), graphRect.top - 25, title);
-			dc.SelectObject(pOldFont);
+			// 축 이름 표시
+			dc.TextOutW(drawRect.CenterPoint().x - 40, drawRect.bottom + 25, _T("Normalized Value"));
 
-			// X축 하단 설명
-			dc.TextOutW(graphRect.CenterPoint().x - 40, graphRect.bottom + 20, _T("Normalized Value"));
-			// Y축 좌측 설명 (세로 쓰기는 복잡하므로 간략히)
-			dc.TextOutW(graphRect.left - 45, graphRect.CenterPoint().y, _T("Density"));
+			// Y축 이름 (세로 쓰기 대신 상단에 표시)
+			dc.TextOutW(drawRect.left - 35, drawRect.top - 20, _T("Density"));
 		}
 	}
+}
+void CEOLParserDlg::OnLvnItemchangedListStats(NMHDR* pNMHDR, LRESULT* pResult)
+{
+	LPNMLISTVIEW pNMLV = reinterpret_cast<LPNMLISTVIEW>(pNMHDR);
+	// TODO: 여기에 컨트롤 알림 처리기 코드를 추가합니다.
+	*pResult = 0;
 }

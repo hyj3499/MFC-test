@@ -45,6 +45,12 @@ public:
     afx_msg void OnBnClickedBtnFolderopen();
     afx_msg void OnEnChangeFolderpath();
 
+    // [추가] 통계용 리스트 컨트롤 변수
+    CListCtrl m_listStats;
+
+    // [추가] 통계 계산 및 출력 함수 선언
+    void UpdateStatistics();
+
     CComboBox m_comboModel; // 콤보박스 변수
     afx_msg void OnCbnSelchangeComboModel(); // 콤보박스 변경 이벤트 함수
 
@@ -55,4 +61,5 @@ public:
 
     // 그리기 함수
     void DrawNormalDistribution(CPaintDC& dc, CRect rect, std::vector<double>& data, COLORREF color);
+    afx_msg void OnLvnItemchangedListStats(NMHDR* pNMHDR, LRESULT* pResult);
 };
