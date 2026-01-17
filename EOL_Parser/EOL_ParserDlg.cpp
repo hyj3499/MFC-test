@@ -53,6 +53,10 @@ void CEOLParserDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_LIST_STATS, m_listStats);
 	// [추가] 로그 리스트 연결
 	DDX_Control(pDX, IDC_LIST_LOG, m_logList);
+	DDX_Control(pDX, IDOK_BTN_save, mbtn_save);
+	DDX_Control(pDX, IDOK_BTN_quit, mbtn_quit);
+	DDX_Control(pDX, IDOK_BTN_reset, mbtn_reset);
+	DDX_Control(pDX, IDC_BTN_FolderOpen, mbtn_folder);
 }
 
 // [이벤트 맵] 버튼 클릭 등의 동작 연결
@@ -87,11 +91,33 @@ BOOL CEOLParserDlg::OnInitDialog()
 		}
 	}
 
-	// 폰트 크기 조절 (크기 22, 굵게 설정)
-	m_font.CreateFont(22, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+	m_font.CreateFont(20, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
 		DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-		DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, _T("맑은 고딕"));
+		DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, _T("나눔스퀘어_ac"));
+
 	GetDlgItem(IDC_BTN_FolderOpen)->SetFont(&m_font);
+	GetDlgItem(IDOK_BTN_save)->SetFont(&m_font);
+	GetDlgItem(IDOK_BTN_quit)->SetFont(&m_font);
+	GetDlgItem(IDOK_BTN_reset)->SetFont(&m_font);
+
+	m_fontGroup.DeleteObject(); // 혹시 모를 초기화
+	m_fontGroup.CreateFont(
+		22,                        // 높이 (약 11~12포인트 크기)
+		0, 0, 0,
+		FW_BOLD,                   // [핵심] 굵게 설정
+		FALSE, FALSE, 0,           // 이탤릭, 밑줄, 취소선 (OFF)
+		DEFAULT_CHARSET,
+		OUT_DEFAULT_PRECIS,
+		CLIP_DEFAULT_PRECIS,
+		DEFAULT_QUALITY,
+		DEFAULT_PITCH | FF_SWISS,
+		_T("나눔스퀘어_ac ExtraBold"));             // 글꼴 이름
+
+	// 2. 그룹박스에 폰트 적용
+	GetDlgItem(IDC_GROUP_LOG)->SetFont(&m_fontGroup);
+	GetDlgItem(	IDC_GROUP_Graph)->SetFont(&m_fontGroup);
+	GetDlgItem(IDC_GROUP_db)->SetFont(&m_fontGroup);
+	GetDlgItem(IDC_GROUP_summary)->SetFont(&m_fontGroup);
 
 	// 아이콘 설정
 	SetIcon(m_hIcon, TRUE);
@@ -150,6 +176,25 @@ BOOL CEOLParserDlg::OnInitDialog()
 
 	m_comboModel.SetCurSel(0); // 기본값 48k 선택
 
+	// 버튼에 이미지 적용
+	// 1. 종료 버튼 (변수명: m_btnExit)
+
+	// 2. 확인 버튼 (변수명: m_btnOk)
+	mbtn_save.SetImage(IDB_PNG1);
+	mbtn_save.m_bTransparent = TRUE;        // (선택) 투명 배경 모드
+	mbtn_save.m_nAlignStyle = CMFCButton::ALIGN_CENTER;
+
+	mbtn_folder.SetImage(IDB_PNG2);
+	mbtn_folder.m_bTransparent = TRUE;        // (선택) 투명 배경 모드
+	mbtn_folder.m_nAlignStyle = CMFCButton::ALIGN_CENTER;
+
+	mbtn_reset.SetImage(IDB_PNG3);
+	mbtn_reset.m_bTransparent = TRUE;        // (선택) 투명 배경 모드
+	mbtn_reset.m_nAlignStyle = CMFCButton::ALIGN_CENTER;
+
+	mbtn_quit.SetImage(IDB_PNG4);
+	mbtn_quit.m_bTransparent = TRUE;        // (선택) 투명 배경 모드
+	mbtn_quit.m_nAlignStyle = CMFCButton::ALIGN_CENTER;
 	return TRUE;
 }
 
@@ -339,6 +384,12 @@ void CEOLParserDlg::OnBnClickedBtnFolderopen()
 		ShowDatabaseContents(folderPath);
 		UpdateStatistics();
 
+		// [추가] 그래프 자동 갱신 로직 -----------------------------
+		m_comboModel.SetCurSel(0); // 1. 콤보박스를 첫 번째 항목(LPE 48k)으로 강제 선택
+		Invalidate();              // 2. 화면 전체 다시 그리기 (OnPaint 호출 -> 그래프 그려짐)
+		UpdateWindow();            // 3. 즉시 갱신 (메시지 대기 없이 바로 그림)
+		// --
+		// 
 		// [LOG] 최종 결과 요약 출력
 		AddLog(_T("================ 결과 리포트 ================"));
 
@@ -565,7 +616,7 @@ void CEOLParserDlg::DrawNormalDistribution(CPaintDC& dc, CRect rect, std::vector
 	if (maxDensity < 0.4) maxDensity = 0.4;
 
 	// --- [1] 히스토그램 그리기 ---
-	CBrush histBrush(RGB(100, 180, 100));
+	CBrush histBrush(RGB(65, 105, 225));     // [수정됨] 보기 좋은 파란색	
 	CPen nullPen(PS_NULL, 0, RGB(0, 0, 0));
 	dc.SelectObject(&histBrush);
 	dc.SelectObject(&nullPen);
@@ -628,8 +679,7 @@ void CEOLParserDlg::OnPaint()
 
 		// 그래프 가독성을 위해 여백(Margin) 확보
 		CRect drawRect = graphRect;
-		drawRect.DeflateRect(40, 40, 20, 40); // 좌, 상, 우, 하 여백
-
+		drawRect.DeflateRect(40, 40, 20, 65);
 		dc.FillSolidRect(graphRect, RGB(255, 255, 255));
 
 		// 기본 축 그리기
@@ -648,19 +698,42 @@ void CEOLParserDlg::OnPaint()
 		}
 
 		if (!columnData.empty()) {
+			// 그래프 그리기
 			DrawNormalDistribution(dc, drawRect, columnData, RGB(255, 0, 0));
 
-			// 제목 및 축 라벨
+			// -----------------------------------------------------------
+			// [수정] 텍스트 정중앙 정렬 로직 시작
+			// -----------------------------------------------------------
 			dc.SetBkMode(TRANSPARENT);
+			dc.SetTextColor(RGB(0, 0, 0)); // 검은색 글씨
+
+			// 1. 제목 (Title) 중앙 정렬
 			CString title;
 			m_comboModel.GetLBText(selIdx, title);
 			title += _T(" Distribution");
-			dc.TextOutW(drawRect.left + 50, drawRect.top - 30, title);
 
-			// 축 이름 표시
-			dc.TextOutW(drawRect.CenterPoint().x - 40, drawRect.bottom + 25, _T("Normalized Value"));
+			// 폰트 설정 (제목이니까 좀 크게)
+			CFont titleFont;
+			titleFont.CreatePointFont(100, _T("Arial")); // 11포인트
+			CFont* pOldFont = dc.SelectObject(&titleFont);
 
-			// Y축 이름 (세로 쓰기 대신 상단에 표시)
+			// 글자 크기(너비) 계산
+			CSize szTitle = dc.GetTextExtent(title);
+
+			// 중앙 좌표 계산: 시작점 + (그릴 영역 너비 - 글자 너비) / 2
+			int xTitle = drawRect.left + (drawRect.Width() - szTitle.cx) / 2;
+			dc.TextOutW(xTitle, drawRect.top - 30, title);
+
+			// 2. X축 라벨 (Normalized Value) 중앙 정렬
+			// 폰트 복구 (축 이름은 기본 크기로)
+			dc.SelectObject(pOldFont);
+
+			CString strXAxis = _T("Normalized Value");
+			CSize szXAxis = dc.GetTextExtent(strXAxis);
+			int xXAxis = drawRect.left + (drawRect.Width() - szXAxis.cx) / 2;
+			dc.TextOutW(xXAxis, drawRect.bottom + 25, strXAxis);
+
+			// 3. Y축 라벨 (Density) - 좌측 상단 배치
 			dc.TextOutW(drawRect.left - 35, drawRect.top - 20, _T("Density"));
 		}
 	}

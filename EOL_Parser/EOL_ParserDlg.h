@@ -38,6 +38,12 @@ public:
     CListBox  m_logList;     // 로그 리스트
     CComboBox m_comboModel;  // 모델 선택 콤보박스
     CFont     m_font;        // 폰트 객체
+    CFont m_fontGroup; // 그룹박스용 폰트 변수
+    CMFCButton mbtn_save;
+    CMFCButton mbtn_quit;
+    CMFCButton mbtn_reset;
+    CMFCButton mbtn_folder;
+
 
     // [이벤트 핸들러]
     afx_msg void OnBnClickedBtnFolderopen();
@@ -59,4 +65,7 @@ public:
     double GetStdDev(const std::vector<double>& data, double mean);
     double NormalPDF(double x);
     void DrawNormalDistribution(CPaintDC& dc, CRect rect, std::vector<double>& data, COLORREF color);
+
+ 
+
 };

@@ -65,5 +65,20 @@
     <Image Include="res\EOL_Parser.ico">
       <Filter>리소스 파일</Filter>
     </Image>
+    <Image Include="..\diskette.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="..\open-folder.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="..\refresh-arrow.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="..\remove.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="..\..\..\..\Downloads\diskette.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
   </ItemGroup>
 </Project>

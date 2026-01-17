@@ -211,6 +211,11 @@
     <None Include="res\EOLParser.rc2" />
   </ItemGroup>
   <ItemGroup>
+    <Image Include="..\..\..\..\Downloads\diskette.bmp" />
+    <Image Include="..\diskette.png" />
+    <Image Include="..\open-folder.png" />
+    <Image Include="..\refresh-arrow.png" />
+    <Image Include="..\remove.png" />
     <Image Include="res\EOL_Parser.ico" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
